@@ -1,0 +1,96 @@
+<html>
+<input id="inputFile" type="file">
+<script>
+    const fileTypes = {
+        2: 'FoxBASE',
+        3: 'FoxBASE+/Dbase III plus, no memo',
+        48: 'Visual FoxPro',
+        49: 'Visual FoxPro, autoincrement enabled',
+        50: 'Visual FoxPro with field type Varchar or Varbinary',
+        67: 'dBASE IV SQL table files, no memo',
+        99: 'dBASE IV SQL system files, no memo',
+        131: 'FoxBASE+/dBASE III PLUS, with memo',
+        139: 'dBASE IV with memo',
+        203: 'dBASE IV SQL table files, with memo',
+        245: 'FoxPro 2.x (or earlier) with memo',
+        229: 'HiPer-Six format with SMT memo file',
+        251: 'FoxBASE',
+    };
+    const handleFileSelect = (evt) => {
+        var files = evt.target.files[0];
+        var reader = new FileReader()
+        reader.onload = function (e) {
+            var fields = [], dataFields = []
+            let data = e.target.result
+            let headInfo = headerInfo(new DataView(data.slice(0, 32)))
+            for (let i = 0; i < headInfo.lenHeader - 64; i += 32)
+                fields.push(getField(data.slice(32 + i, i + 64)))
+            for (let i = 0; i < headInfo.numRecords; i++)
+                dataFields.push(parseField(data.slice(headInfo.lenHeader + 1 + i * headInfo.lenRecord, headInfo.lenHeader + 1 + (i + 1) * headInfo.lenRecord),fields))
+            console.log(dataFields)
+            document.body.insertAdjacentHTML('beforeend', `version=${headInfo.version}; data=${headInfo.date}; numRecords=${headInfo.numRecords}`)
+            createTable(fields,dataFields)
+        }
+        reader.readAsArrayBuffer(files);
+    }
+    const parseFileType = (buffer) => fileTypes[buffer.getUint8(0)]
+        ? fileTypes[buffer.getUint8(0)]
+        : 'uknown';
+    const parseDate = (buffer) => new Date(
+        buffer.getUint8(1) + 2000, // year
+        buffer.getUint8(2) - 1,  // month
+        buffer.getUint8(3) // day
+    );
+    const headerInfo = (headerView) => ({
+        version: parseFileType(headerView),
+        date: parseDate(headerView),
+        numRecords: headerView.getUint32(4, true),
+        lenHeader: headerView.getUint16(8, true),
+        lenRecord: headerView.getUint16(10, true)
+    })
+    function parseField(buffer,fields) {
+        let lenRec = 0, res = {}
+        for (let i = 0; i < fields.length; i++) {
+            res[fields[i].name] = ArrayBufferToString(buffer.slice(lenRec, lenRec + fields[i].length), 'utf8').trim()
+            lenRec += fields[i].length
+        }
+        return res
+    }
+    function getField(buffer) {
+        let dataBuffer = new DataView(buffer)
+        return {
+            name: ArrayBufferToString(buffer.slice(0, 11), 'utf-8').replace(/[\u0000]+$/, ''),
+            type: ArrayBufferToString(buffer.slice(11, 12), 'utf-8'),
+            displacement: dataBuffer.getUint32(12, true),
+            length: dataBuffer.getUint8(16, true),
+            decimalPlaces: dataBuffer.getUint8(17, true),
+            flag: dataBuffer.getUint8(18, true)
+        }
+    }
+
+    function ArrayBufferToString(buffer, encoding) {
+        if (encoding == null) encoding = 'utf8'
+
+        var uint8 = new Uint8Array(buffer)
+
+        var decoder = new TextDecoder(encoding)
+        return decoder.decode(uint8)
+    }
+    function createTable(fields,dataFields) {
+        let table = `<table><tr>`
+        for (let i = 0; i < fields.length; i++)
+            table += `<th>${fields[i].name}</th>`
+        table += `</tr>`
+        for (let i = 0; i < dataFields.length; i++) {
+            table += `<tr>`
+            for (let j = 0; j < fields.length; j++)
+                table += `<td>${dataFields[i][fields[j].name]}</td>`
+            table += `</tr>`
+        }
+        document.body.insertAdjacentHTML('afterend', table)
+    }
+
+    document.getElementById('inputFile').addEventListener('change', handleFileSelect)
+</script>
+
+</html>
